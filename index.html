@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <title>Мышка для Шоколада 🐾</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-touch-callout: none;
+        }
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #12161f; /* Темный фон для максимального контраста */
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            touch-action: none; /* Блокируем любые системные жесты и зумы */
+        }
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        #start-screen {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(18, 22, 31, 0.95);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: #fff;
+            z-index: 10;
+            text-align: center;
+            padding: 20px;
+        }
+        h1 {
+            color: #ffd700;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+        p {
+            color: #a0aab8;
+            max-width: 400px;
+            margin-bottom: 25px;
+            font-size: 16px;
+            line-height: 1.4;
+        }
+        .settings {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 25px;
+        }
+        .color-btn {
+            padding: 10px 16px;
+            border-radius: 12px;
+            border: 2px solid transparent;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .color-btn.active {
+            border-color: #fff;
+            transform: scale(1.05);
+        }
+        .btn-yellow { background: #ffd700; color: #000; }
+        .btn-blue { background: #00a8ff; color: #fff; }
+        .btn-white { background: #f5f6fa; color: #000; }
+
+        #play-btn {
+            background: #ffd700;
+            color: #12161f;
+            border: none;
+            padding: 18px 40px;
+            font-size: 22px;
+            font-weight: bold;
+            border-radius: 50px;
+            cursor: pointer;
+            box-shadow: 0 6px 20px rgba(255, 215, 0, 0.35);
+            transition: transform 0.1s;
+        }
+        #play-btn:active {
+            transform: scale(0.96);
+        }
+        #hud {
+            position: absolute;
+            top: 12px;
+            left: 16px;
+            right: 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            pointer-events: none;
+            z-index: 5;
+        }
+        .score-box {
+            color: rgba(255, 255, 255, 0.35);
+            font-size: 18px;
+            font-weight: bold;
+        }
+        #lock-exit {
+            pointer-events: auto;
+            background: rgba(255, 255, 255, 0.08);
+            color: rgba(255, 255, 255, 0.4);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            padding: 6px 12px;
+            border-radius: 8px;
+            font-size: 12px;
+            position: relative;
+            overflow: hidden;
+        }
+        #lock-progress {
+            position: absolute;
+            left: 0; top: 0; bottom: 0;
+            width: 0%;
+            background: rgba(255, 82, 82, 0.4);
+            transition: width 0.1s linear;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="start-screen">
+        <h1>🐾 Охота для Шоколада</h1>
+        <p>Цвета адаптированы под зрение собак (желтый и синий спектр). Нажми «Играть», чтобы включить звук и полноэкранный режим.</p>
+        
+        <div class="settings">
+            <button class="color-btn btn-yellow active" data-color="#ffd700" data-ear="#e1b12c">Желтая мышь</button>
+            <button class="color-btn btn-blue" data-color="#00a8ff" data-ear="#0097e6">Синяя мышь</button>
+            <button class="color-btn btn-white" data-color="#f5f6fa" data-ear="#dcdde1">Белая мышь</button>
+        </div>
+
+        <button id="play-btn">ИГРАТЬ ▶</button>
+    </div>
+
+    <div id="hud">
+        <div class="score-box">Поймано: <span id="score">0</span></div>
+        <div id="lock-exit">
+            <div id="lock-progress"></div>
+            <span>Удерживай 2 сек для меню</span>
+        </div>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const startScreen = document.getElementById('start-screen');
+        const playBtn = document.getElementById('play-btn');
+        const scoreEl = document.getElementById('score');
+        const colorBtns = document.querySelectorAll('.color-btn');
+        const lockExitBtn = document.getElementById('lock-exit');
+        const lockProgress = document.getElementById('lock-progress');
+
+        let width, height;
+        let score = 0;
+        let gameActive = false;
+        let audioCtx = null;
+        let wakeLock = null;
+
+        // Настройки цвета мышки (по умолчанию ярко-желтый — самый заметный для собак)
+        let mouseColor = '#ffd700';
+        let mouseEarColor = '#e1b12c';
+
+        colorBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                colorBtns.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                mouseColor = btn.dataset.color;
+                mouseEarColor = btn.dataset.ear;
+            });
+        });
+
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // --- ЗВУКОВОЙ ДВИЖОК (Web Audio API без внешних файлов) ---
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+        }
+
+        // Реалистичный писк мышки (привлекает внимание собаки)
+        function playSqueak(isCaught = false) {
+            if (!audioCtx) return;
+            const now = audioCtx.currentTime;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+
+            osc.type = 'sine';
+            if (isCaught) {
+                // Двойной громкий писк при поимке
+                osc.frequency.setValueAtTime(2400, now);
+                osc.frequency.exponentialRampToValueAtTime(3800, now + 0.08);
+                osc.frequency.setValueAtTime(2600, now + 0.1);
+                osc.frequency.exponentialRampToValueAtTime(4200, now + 0.22);
+
+                gain.gain.setValueAtTime(0.4, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.24);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start(now);
+                osc.stop(now + 0.25);
+            } else {
+                // Короткий призывной писк во время бега
+                osc.frequency.setValueAtTime(2800 + Math.random() * 600, now);
+                osc.frequency.exponentialRampToValueAtTime(3500, now + 0.06);
+
+                gain.gain.setValueAtTime(0.15, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.07);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start(now);
+                osc.stop(now + 0.08);
+            }
+        }
+
+        // --- ЭФФЕКТЫ ПРИ НАЖАТИИ ЛАПОЙ ---
+        const particles = [];
+        const ripples = [];
+
+        function spawnParticles(x, y, color) {
+            for (let i = 0; i < 18; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const speed = 2 + Math.random() * 8;
+                particles.push({
+                    x, y,
+                    vx: Math.cos(angle) * speed,
+                    vy: Math.sin(angle) * speed,
+                    radius: 4 + Math.random() * 6,
+                    color: color,
+                    alpha: 1
+                });
+            }
+        }
+
+        function spawnRipple(x, y) {
+            ripples.push({ x, y, radius: 10, alpha: 0.6 });
+        }
+
+        // --- ОБЪЕКТ МЫШКИ ---
+        const mouse = {
+            x: width / 2,
+            y: height / 2,
+            angle: 0,
+            targetAngle: 0,
+            speed: 6,
+            baseRadius: 34, // Достаточно крупная для подушечки лапы той-пуделя
+            hitRadius: 65,  // Щедрый хитбокс, чтобы лапа точно попадала
+            state: 'run',   // 'run' | 'pause'
+            stateTimer: 60,
+            tailPhase: 0,
+
+            reset(fromEdge = false) {
+                if (fromEdge) {
+                    const side = Math.floor(Math.random() * 4);
+                    if (side === 0) { this.x = -40; this.y = Math.random() * height; this.angle = 0; }
+                    else if (side === 1) { this.x = width + 40; this.y = Math.random() * height; this.angle = Math.PI; }
+                    else if (side === 2) { this.x = Math.random() * width; this.y = -40; this.angle = Math.PI / 2; }
+                    else { this.x = Math.random() * width; this.y = height + 40; this.angle = -Math.PI / 2; }
+                } else {
+                    this.x = width / 2;
+                    this.y = height / 2;
+                    this.angle = Math.random() * Math.PI * 2;
+                }
+                this.targetAngle = this.angle;
+                this.state = 'run';
+                this.stateTimer = 40 + Math.random() * 60;
+            },
+
+            update() {
+                this.stateTimer--;
+
+                if (this.stateTimer <= 0) {
+                    // Мышка бегает рывками (как настоящая): пробежка -> короткая заминка -> рывок
+                    if (this.state === 'run' && Math.random() < 0.3) {
+                        this.state = 'pause';
+                        this.stateTimer = 15 + Math.random() * 25; // Замирает на 0.25 - 0.4 сек
+                        if (Math.random() < 0.5) playSqueak(false);
+                    } else {
+                        this.state = 'run';
+                        this.stateTimer = 30 + Math.random() * 70;
+                        this.speed = 5 + Math.random() * 6;
+                        this.targetAngle += (Math.random() - 0.5) * 2.5;
+                        if (Math.random() < 0.25) playSqueak(false);
+                    }
+                }
+
+                if (this.state === 'run') {
+                    // Плавный поворот к целевому углу
+                    let diff = this.targetAngle - this.angle;
+                    while (diff < -Math.PI) diff += Math.PI * 2;
+                    while (diff > Math.PI) diff -= Math.PI * 2;
+                    this.angle += diff * 0.12;
+
+                    this.x += Math.cos(this.angle) * this.speed;
+                    this.y += Math.sin(this.angle) * this.speed;
+                    this.tailPhase += 0.35;
+
+                    // Отскок от краев экрана с отступом
+                    const pad = 50;
+                    if (this.x < pad) { this.x = pad; this.targetAngle = (Math.random() - 0.5) * Math.PI; }
+                    if (this.x > width - pad) { this.x = width - pad; this.targetAngle = Math.PI + (Math.random() - 0.5) * Math.PI; }
+                    if (this.y < pad) { this.y = pad; this.targetAngle = Math.PI / 2 + (Math.random() - 0.5) * Math.PI; }
+                    if (this.y > height - pad) { this.y = height - pad; this.targetAngle = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI; }
+                } else {
+                    // Легкое подрагивание хвостика на паузе
+                    this.tailPhase += 0.08;
+                }
+            },
+
+            draw() {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.angle);
+
+                // 1. Хвостик (виляет синусоидой)
+                ctx.beginPath();
+                ctx.moveTo(-this.baseRadius + 5, 0);
+                for (let i = 1; i <= 5; i++) {
+                    const tx = -this.baseRadius - i * 9;
+                    const ty = Math.sin(this.tailPhase - i * 0.6) * (i * 2.2);
+                    ctx.lineTo(tx, ty);
+                }
+                ctx.strokeStyle = mouseEarColor;
+                ctx.lineWidth = 5;
+                ctx.lineCap = 'round';
+                ctx.stroke();
+
+                // 2. Лапки (перебирают при движении)
+                const legOffset = Math.sin(this.tailPhase * 1.5) * 6;
+                ctx.fillStyle = mouseEarColor;
+                // Передние и задние лапки
+                ctx.beginPath();
+                ctx.arc(12 + legOffset, -18, 6, 0, Math.PI * 2);
+                ctx.arc(12 - legOffset, 18, 6, 0, Math.PI * 2);
+                ctx.arc(-14 - legOffset, -18, 6, 0, Math.PI * 2);
+                ctx.arc(-14 + legOffset, 18, 6, 0, Math.PI * 2);
+                ctx.fill();
+
+                // 3. Тело мышки (каплевидный овал)
+                ctx.fillStyle = mouseColor;
+                ctx.beginPath();
+                ctx.ellipse(0, 0, this.baseRadius, this.baseRadius * 0.68, 0, 0, Math.PI * 2);
+                ctx.fill();
+
+                // 4. Ушки
+                ctx.fillStyle = mouseEarColor;
+                ctx.beginPath();
+                ctx.arc(14, -16, 11, 0, Math.PI * 2);
+                ctx.arc(14, 16, 11, 0, Math.PI * 2);
+                ctx.fill();
+
+                // 5. Глазки-бусинки
+                ctx.fillStyle = '#12161f';
+                ctx.beginPath();
+                ctx.arc(24, -8, 3.5, 0, Math.PI * 2);
+                ctx.arc(24, 8, 3.5, 0, Math.PI * 2);
+                ctx.fill();
+
+                // 6. Носик
+                ctx.fillStyle = '#ff6b81';
+                ctx.beginPath();
+                ctx.arc(this.baseRadius + 2, 0, 5, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.restore();
+            }
+        };
+
+        // --- ОБРАБОТКА КАСАНИЙ ЛАПАМИ ---
+        function checkHit(x, y) {
+            if (!gameActive) return;
+            spawnRipple(x, y);
+
+            const dx = x - mouse.x;
+            const dy = y - mouse.y;
+            const dist = Math.hypot(dx, dy);
+
+            if (dist <= mouse.hitRadius) {
+                // Попал лапой!
+                score++;
+                scoreEl.textContent = score;
+                playSqueak(true);
+                spawnParticles(mouse.x, mouse.y, mouseColor);
+
+                // Короткая вибрация (если телефон поддерживает)
+                if (navigator.vibrate) navigator.vibrate(40);
+
+                // Новая мышка выбегает из-за края экрана
+                mouse.reset(true);
+            } else if (dist <= mouse.hitRadius * 2.2) {
+                // Если лапа ударила совсем рядом — мышка пугается и резко убегает от лапы
+                mouse.state = 'run';
+                mouse.speed = 12;
+                mouse.targetAngle = Math.atan2(mouse.y - y, mouse.x - x);
+                mouse.angle = mouse.targetAngle;
+                mouse.stateTimer = 35;
+                playSqueak(false);
+            }
+        }
+
+        // Поддержка мультитач (на случай, если Шоколад нажимает двумя лапами сразу)
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            initAudio();
+            for (let i = 0; i < e.changedTouches.length; i++) {
+                const t = e.changedTouches[i];
+                checkHit(t.clientX, t.clientY);
+            }
+        }, { passive: false });
+
+        // Даже если пес проводит лапой по экрану (свайпает), засчитываем перехват мышки
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            for (let i = 0; i < e.changedTouches.length; i++) {
+                const t = e.changedTouches[i];
+                const dx = t.clientX - mouse.x;
+                const dy = t.clientY - mouse.y;
+                if (Math.hypot(dx, dy) <= mouse.hitRadius * 0.85) {
+                    checkHit(t.clientX, t.clientY);
+                }
+            }
+        }, { passive: false });
+
+        canvas.addEventListener('mousedown', (e) => {
+            initAudio();
+            checkHit(e.clientX, e.clientY);
+        });
+
+        // --- ЗАЩИТА ОТ СЛУЧАЙНОГО ВЫХОДА (УДЕРЖАНИЕ 2 СЕК) ---
+        let lockTimer = null;
+        let lockStart = 0;
+
+        function startExitHold(e) {
+            e.stopPropagation();
+            lockStart = Date.now();
+            lockTimer = setInterval(() => {
+                const elapsed = Date.now() - lockStart;
+                const pct = Math.min(100, (elapsed / 2000) * 100);
+                lockProgress.style.width = pct + '%';
+                if (elapsed >= 2000) {
+                    clearInterval(lockTimer);
+                    lockProgress.style.width = '0%';
+                    gameActive = false;
+                    startScreen.style.display = 'flex';
+                    if (document.fullscreenElement) {
+                        document.exitFullscreen().catch(() => {});
+                    }
+                }
+            }, 50);
+        }
+
+        function cancelExitHold() {
+            clearInterval(lockTimer);
+            lockProgress.style.width = '0%';
+        }
+
+        lockExitBtn.addEventListener('touchstart', startExitHold);
+        lockExitBtn.addEventListener('touchend', cancelExitHold);
+        lockExitBtn.addEventListener('mousedown', startExitHold);
+        lockExitBtn.addEventListener('mouseup', cancelExitHold);
+
+        // --- ЗАПУСК ИГРЫ И WAKE LOCK (ЧТОБЫ ЭКРАН НЕ ГАС) ---
+        async function requestWakeLock() {
+            try {
+                if ('wakeLock' in navigator) {
+                    wakeLock = await navigator.wakeLock.request('screen');
+                }
+            } catch (err) {}
+        }
+
+        playBtn.addEventListener('click', () => {
+            initAudio();
+            requestWakeLock();
+            if (document.documentElement.requestFullscreen) {
+                document.documentElement.requestFullscreen().catch(() => {});
+            }
+            startScreen.style.display = 'none';
+            gameActive = true;
+            mouse.reset(false);
+            playSqueak(false);
+        });
+
+        // --- ГЛАВНЫЙ ЦИКЛ ОТРИСОВКИ ---
+        function loop() {
+            ctx.clearRect(0, 0, width, height);
+
+            if (gameActive) {
+                mouse.update();
+                mouse.draw();
+            }
+
+            // Круги от касаний лапой
+            for (let i = ripples.length - 1; i >= 0; i--) {
+                const r = ripples[i];
+                r.radius += 3;
+                r.alpha -= 0.03;
+                if (r.alpha <= 0) {
+                    ripples.splice(i, 1);
+                } else {
+                    ctx.beginPath();
+                    ctx.arc(r.x, r.y, r.radius, 0, Math.PI * 2);
+                    ctx.strokeStyle = `rgba(255, 255, 255, ${r.alpha})`;
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                }
+            }
+
+            // Взрыв конфетти при поимке
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.x += p.vx;
+                p.y += p.vy;
+                p.alpha -= 0.03;
+                if (p.alpha <= 0) {
+                    particles.splice(i, 1);
+                } else {
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+                    ctx.fillStyle = p.color;
+                    ctx.globalAlpha = p.alpha;
+                    ctx.fill();
+                    ctx.globalAlpha = 1;
+                }
+            }
+
+            requestAnimationFrame(loop);
+        }
+        loop();
+    </script>
+</body>
+</html>
