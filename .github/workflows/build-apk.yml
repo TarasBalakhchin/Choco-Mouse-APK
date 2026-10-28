@@ -44,6 +44,89 @@ jobs:
           npx cap add android
           npx cap sync android
 
+      - name: 🎨 Автогенерация иконки с желтой мышкой
+        run: |
+          # 1. Задаем фирменный темно-синий фон для адаптивной иконки Android 8+
+          cat << 'EOF' > android/app/src/main/res/values/ic_launcher_background.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <color name="ic_launcher_background">#12161F</color>
+          </resources>
+          EOF
+
+          # 2. Рисуем векторную желтую мышку для адаптивного переднего плана (ic_launcher_foreground.xml)
+          cat << 'EOF' > android/app/src/main/res/drawable/ic_launcher_foreground.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="108dp"
+              android:height="108dp"
+              android:viewportWidth="108"
+              android:viewportHeight="108">
+              <!-- Хвостик -->
+              <path
+                  android:strokeColor="#E1B12C"
+                  android:strokeWidth="3.5"
+                  android:strokeLineCap="round"
+                  android:pathData="M36,54 Q23,44 19,56 T12,52" />
+              <!-- Ушки (задний слой) -->
+              <path
+                  android:fillColor="#E1B12C"
+                  android:pathData="M62,38 m-9,0 a9,9 0 1,1 18,0 a9,9 0 1,1 -18,0" />
+              <path
+                  android:fillColor="#E1B12C"
+                  android:pathData="M62,70 m-9,0 a9,9 0 1,1 18,0 a9,9 0 1,1 -18,0" />
+              <!-- Тело мышки -->
+              <path
+                  android:fillColor="#FFD700"
+                  android:pathData="M32,54 a23,16 0 1,0 46,0 a23,16 0 1,0 -46,0" />
+              <!-- Глазки -->
+              <path
+                  android:fillColor="#12161F"
+                  android:pathData="M69,48 m-2.8,0 a2.8,2.8 0 1,1 5.6,0 a2.8,2.8 0 1,1 -5.6,0" />
+              <path
+                  android:fillColor="#12161F"
+                  android:pathData="M69,60 m-2.8,0 a2.8,2.8 0 1,1 5.6,0 a2.8,2.8 0 1,1 -5.6,0" />
+              <!-- Розовый носик -->
+              <path
+                  android:fillColor="#FF6B81"
+                  android:pathData="M79,54 m-4,0 a4,4 0 1,1 8,0 a4,4 0 1,1 -8,0" />
+          </vector>
+          EOF
+
+          # Удаляем старый v24-дубликат переднего плана, если он есть в шаблоне Capacitor
+          rm -f android/app/src/main/res/drawable-v24/ic_launcher_foreground.xml
+
+          # 3. Генерируем PNG-иконки для всех плотностей экрана через Python + Pillow
+          pip install pillow
+          python3 - << 'EOF'
+          import os, glob
+          from PIL import Image, ImageDraw
+
+          for path in glob.glob("android/app/src/main/res/mipmap-*/ic_launcher*.png"):
+              img = Image.open(path)
+              w, h = img.size
+              out = Image.new("RGBA", (w, h), (18, 22, 31, 255))
+              d = ImageDraw.Draw(out)
+
+              # Масштабируем мышку под размер конкретной PNG-иконки
+              d.line([(w*0.14, h*0.5), (w*0.32, h*0.5)], fill=(225, 177, 44, 255), width=max(2, int(w*0.05)))
+              d.ellipse([w*0.50, h*0.24, w*0.68, h*0.42], fill=(225, 177, 44, 255))
+              d.ellipse([w*0.50, h*0.58, w*0.68, h*0.76], fill=(225, 177, 44, 255))
+              d.ellipse([w*0.28, h*0.33, w*0.76, h*0.67], fill=(255, 215, 0, 255))
+              d.ellipse([w*0.64, h*0.41, w*0.70, h*0.47], fill=(18, 22, 31, 255))
+              d.ellipse([w*0.64, h*0.53, w*0.70, h*0.59], fill=(18, 22, 31, 255))
+              d.ellipse([w*0.72, h*0.45, w*0.82, h*0.55], fill=(255, 107, 129, 255))
+
+              if "round" in os.path.basename(path):
+                  mask = Image.new("L", (w, h), 0)
+                  ImageDraw.Draw(mask).ellipse((0, 0, w, h), fill=255)
+                  res = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+                  res.paste(out, (0, 0), mask)
+                  out = res
+
+              out.save(path)
+          EOF
+
       - name: 🐾 Настройка Android (Full Screen + Фикс дубликатов Kotlin)
         run: |
           # 1. Разрешаем вибрацию в AndroidManifest.xml
@@ -59,4 +142,52 @@ jobs:
           EOF
 
           # 3. Прописываем жесткий полноэкранный режим и запрет гашения экрана
-          MAIN_ACT="android/app/src/main/java/com/choco/mousegame/Main
+          MAIN_ACT="android/app/src/main/java/com/choco/mousegame/MainActivity.java"
+          cat << 'EOF' > "$MAIN_ACT"
+          package com.choco.mousegame;
+
+          import android.os.Bundle;
+          import android.view.View;
+          import android.view.WindowManager;
+          import com.getcapacitor.BridgeActivity;
+
+          public class MainActivity extends BridgeActivity {
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                  hideSystemUI();
+              }
+
+              @Override
+              public void onWindowFocusChanged(boolean hasFocus) {
+                  super.onWindowFocusChanged(hasFocus);
+                  if (hasFocus) {
+                      hideSystemUI();
+                  }
+              }
+
+              private void hideSystemUI() {
+                  getWindow().getDecorView().setSystemUiVisibility(
+                      View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                      | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                      | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                      | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                      | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                      | View.SYSTEM_UI_FLAG_FULLSCREEN
+                  );
+              }
+          }
+          EOF
+
+      - name: 🔨 Сборка APK через Gradle
+        working-directory: ./android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: 📦 Выгрузка готового APK в Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Choco-Mouse-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk
