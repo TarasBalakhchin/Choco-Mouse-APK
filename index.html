@@ -6,6 +6,39 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
     <title>Мышка для Шоколада 🐾</title>
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Шоколад 🐾">
+    <script>
+        // Автогенерация красивой иконки для экрана «Домой» на iPhone (Apple Touch Icon)
+        window.addEventListener('DOMContentLoaded', () => {
+            const c = document.createElement('canvas');
+            c.width = 180; c.height = 180;
+            const x = c.getContext('2d');
+            // Темно-синий фон
+            x.fillStyle = '#12161f';
+            x.fillRect(0, 0, 180, 180);
+            // Хвостик
+            x.strokeStyle = '#e1b12c'; x.lineWidth = 8; x.lineCap = 'round';
+            x.beginPath(); x.moveTo(55, 90); x.quadraticCurveTo(30, 70, 20, 95); x.stroke();
+            // Ушки
+            x.fillStyle = '#e1b12c';
+            x.beginPath(); x.arc(105, 62, 16, 0, Math.PI*2); x.arc(105, 118, 16, 0, Math.PI*2); x.fill();
+            // Тело желтой мышки
+            x.fillStyle = '#ffd700';
+            x.beginPath(); x.ellipse(90, 90, 42, 30, 0, 0, Math.PI*2); x.fill();
+            // Глазки
+            x.fillStyle = '#12161f';
+            x.beginPath(); x.arc(115, 80, 5, 0, Math.PI*2); x.arc(115, 100, 5, 0, Math.PI*2); x.fill();
+            // Носик
+            x.fillStyle = '#ff6b81';
+            x.beginPath(); x.arc(134, 90, 7, 0, Math.PI*2); x.fill();
+
+            const link = document.createElement('link');
+            link.rel = 'apple-touch-icon';
+            link.href = c.toDataURL('image/png');
+            document.head.appendChild(link);
+        });
+    </script>
     <style>
         * {
             box-sizing: border-box;
