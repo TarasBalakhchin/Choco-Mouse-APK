@@ -1,0 +1,106 @@
+name: Build Choco Mouse APK
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch: # Позволяет запускать сборку вручную кнопкой в разделе Actions
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Скачивание кода репозитория
+        uses: actions/checkout@v4
+
+      - name: ☕ Установка Java 21 (требуется для современного Android Gradle)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: 🟢 Установка Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 🛠️ Инициализация Capacitor и упаковка index.html
+        run: |
+          # Создаем папку веб-ассетов и копируем туда нашу игру
+          mkdir -p www
+          cp index.html www/index.html
+
+          # Инициализируем проект и ставим Capacitor
+          npm init -y
+          npm install @capacitor/core @capacitor/cli @capacitor/android
+
+          # Создаем конфиг приложения для Шоколада
+          cat << 'EOF' > capacitor.config.json
+          {
+            "appId": "com.choco.mousegame",
+            "appName": "Мышка для Шоколада",
+            "webDir": "www",
+            "bundledWebRuntime": false
+          }
+          EOF
+
+          # Генерируем Android-проект
+          npx cap add android
+          npx cap sync android
+
+      - name: 🐾 Настройка Android под собачьи лапы (Full Screen + Keep Screen On)
+        run: |
+          # 1. Разрешаем вибрацию в AndroidManifest.xml
+          sed -i 's/<application/<uses-permission android:name="android.permission.VIBRATE" \/>\n    <application/' android/app/src/main/AndroidManifest.xml
+
+          # 2. Прописываем в MainActivity жесткий полноэкранный режим (Immersive Sticky) и запрет гашения экрана
+          MAIN_ACT="android/app/src/main/java/com/choco/mousegame/MainActivity.java"
+          cat << 'EOF' > "$MAIN_ACT"
+          package com.choco.mousegame;
+
+          import android.os.Bundle;
+          import android.view.View;
+          import android.view.WindowManager;
+          import com.getcapacitor.BridgeActivity;
+
+          public class MainActivity extends BridgeActivity {
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  // Экран никогда не гаснет
+                  getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                  hideSystemUI();
+              }
+
+              @Override
+              public void onWindowFocusChanged(boolean hasFocus) {
+                  super.onWindowFocusChanged(hasFocus);
+                  if (hasFocus) {
+                      hideSystemUI();
+                  }
+              }
+
+              private void hideSystemUI() {
+                  getWindow().getDecorView().setSystemUiVisibility(
+                      View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                      | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                      | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                      | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                      | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                      | View.SYSTEM_UI_FLAG_FULLSCREEN
+                  );
+              }
+          }
+          EOF
+
+      - name: 🔨 Сборка APK через Gradle
+        working-directory: ./android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: 📦 Выгрузка готового APK в Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Choco-Mouse-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk
